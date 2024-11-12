@@ -20,7 +20,6 @@ import asyncio
 API_TOKEN="7306703210:AAGaafa05SGa9loovceBZXor1TZWfd-3s4Q"
 SUPPORT_GROUP_ID="-1002364803574"
 
-SUPPORT_GROUP_ID = int(SUPPORT_GROUP_ID)
 
 # Включаем логирование
 logging.basicConfig(level=logging.INFO)
@@ -30,8 +29,29 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
+# Файл для хранения соответствия пользователей и ID тем
+USER_TOPICS_FILE = 'user_topics.json'
+
 # Словарь для хранения соответствия пользователей и ID тем
 user_topics = {}
+
+
+# Функция для загрузки соответствия из файла
+def load_user_topics():
+    global user_topics
+    if os.path.exists(USER_TOPICS_FILE):
+        with open(USER_TOPICS_FILE, 'r') as f:
+            user_topics = json.load(f)
+            # Ключи в JSON-файле сохраняются как строки, поэтому преобразуем их в int
+            user_topics = {int(k): v for k, v in user_topics.items()}
+    else:
+        user_topics = {}
+
+
+# Функция для сохранения соответствия в файл
+def save_user_topics():
+    with open(USER_TOPICS_FILE, 'w') as f:
+        json.dump(user_topics, f)
 
 
 # Обработчик команды /start
@@ -69,6 +89,7 @@ async def handle_user_message(message: Message):
             )
             topic_id = topic.message_thread_id
             user_topics[user_id] = topic_id
+            save_user_topics()  # Сохраняем соответствие в файл
 
             # Отправляем ссылку на профиль пользователя в тему поддержки (только при создании темы)
             if user_username:
@@ -176,6 +197,9 @@ dp.message.register(
 
 
 async def main():
+    # Загрузка соответствия из файла при запуске бота
+    load_user_topics()
+
     try:
         chat = await bot.get_chat(SUPPORT_GROUP_ID)
         logger.info(f"Бот успешно получил доступ к группе: {chat.title}")
