@@ -9,12 +9,15 @@ import asyncio
 
 # Получаем переменные окружения
 API_TOKEN = os.getenv('API_TOKEN')
-SUPPORT_GROUP_ID = int(os.getenv('SUPPORT_GROUP_ID'))
+# SUPPORT_GROUP_ID = int(os.getenv('SUPPORT_GROUP_ID'))
+SUPPORT_GROUP_ID = os.getenv('SUPPORT_GROUP_ID')
 
-if not API_TOKEN:
+if API_TOKEN is None:
     raise ValueError("Не задан API_TOKEN")
-if not SUPPORT_GROUP_ID:
+if SUPPORT_GROUP_ID is None:
     raise ValueError("Не задан SUPPORT_GROUP_ID")
+
+SUPPORT_GROUP_ID = int(SUPPORT_GROUP_ID)
 
 # Включаем логирование
 logging.basicConfig(level=logging.INFO)
