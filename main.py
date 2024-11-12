@@ -18,8 +18,8 @@ import asyncio
 # if SUPPORT_GROUP_ID is None:
 #     raise ValueError("Не задан SUPPORT_GROUP_ID")
 
-API_TOKEN="7306703210:AAGaafa05SGa9loovceBZXor1TZWfd-3s4Q"
-SUPPORT_GROUP_ID="-1002364803574"
+API_TOKEN = "7306703210:AAGaafa05SGa9loovceBZXor1TZWfd-3s4Q"
+SUPPORT_GROUP_ID = "-1002364803574"
 
 
 # Включаем логирование
