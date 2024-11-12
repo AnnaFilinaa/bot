@@ -1,4 +1,5 @@
 import os
+import json  # Для работы с JSON-файлом
 import logging
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
