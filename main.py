@@ -1,5 +1,4 @@
 import os
-import json  # Для работы с JSON-файлом
 import logging
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
@@ -19,7 +18,7 @@ import asyncio
 #     raise ValueError("Не задан SUPPORT_GROUP_ID")
 
 API_TOKEN = "7306703210:AAGaafa05SGa9loovceBZXor1TZWfd-3s4Q"
-SUPPORT_GROUP_ID = "-1002364803574"
+SUPPORT_GROUP_ID ="-1002364803574"
 
 
 # Включаем логирование
@@ -30,30 +29,42 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
-# Файл для хранения соответствия пользователей и ID тем
-USER_TOPICS_FILE = 'user_topics.json'
-
 # Словарь для хранения соответствия пользователей и ID тем
 user_topics = {}
 
+# Функция для извлечения user_id из названия темы
+def extract_user_id_from_topic_name(topic_name):
+    parts = topic_name.split('|')
+    if len(parts) >= 3:
+        user_id_str = parts[2].strip()
+        if user_id_str.isdigit():
+            return int(user_id_str)
+    return None
 
-# Функция для загрузки соответствия из файла
-def load_user_topics():
-    global user_topics
-    if os.path.exists(USER_TOPICS_FILE):
-        with open(USER_TOPICS_FILE, 'r') as f:
-            user_topics = json.load(f)
-            # Ключи в JSON-файле сохраняются как строки, поэтому преобразуем их в int
-            user_topics = {int(k): v for k, v in user_topics.items()}
-    else:
-        user_topics = {}
-
-
-# Функция для сохранения соответствия в файл
-def save_user_topics():
-    with open(USER_TOPICS_FILE, 'w') as f:
-        json.dump(user_topics, f)
-
+# Функция для получения существующих тем из истории сообщений
+async def get_existing_topics():
+    existing_topics = {}
+    try:
+        offset = 0
+        limit = 100
+        while True:
+            messages = await bot.get_chat_history(chat_id=SUPPORT_GROUP_ID, offset=offset, limit=limit)
+            if not messages:
+                break
+            for message in messages:
+                if message.forum_topic_created:
+                    topic_id = message.message_thread_id
+                    topic_name = message.forum_topic_created.name
+                    user_id = extract_user_id_from_topic_name(topic_name)
+                    if user_id:
+                        existing_topics[user_id] = topic_id
+            if len(messages) < limit:
+                break
+            offset += limit
+        return existing_topics
+    except Exception as e:
+        logger.error(f"Ошибка при получении существующих тем: {e}")
+        return existing_topics
 
 # Обработчик команды /start
 async def cmd_start(message: Message):
@@ -71,17 +82,19 @@ dp.message.register(cmd_start, Command(commands=["start"]))
 async def handle_user_message(message: Message):
     user_id = message.from_user.id
     user_name = message.from_user.full_name
-    user_username = message.from_user.username
+    user_username = message.from_user.username or ''
     user_link = f"<a href='tg://user?id={user_id}'>{user_name}</a>"
 
-    # Формируем название темы из имени и никнейма
+    # Формируем название темы, включая user_id
     if user_username:
-        topic_name = f"{user_name} | @{user_username}"
+        topic_name = f"{user_name} | @{user_username} | {user_id}"
     else:
-        topic_name = f"{user_name}"
+        topic_name = f"{user_name} | {user_id}"
 
     # Проверяем, есть ли уже тема для этого пользователя
-    if user_id not in user_topics:
+    topic_id = user_topics.get(user_id)
+    if not topic_id:
+        # Если темы нет, создаём новую
         try:
             # Создаем новую тему в группе поддержки
             topic = await bot.create_forum_topic(
@@ -89,10 +102,9 @@ async def handle_user_message(message: Message):
                 name=topic_name
             )
             topic_id = topic.message_thread_id
-            user_topics[user_id] = topic_id
-            save_user_topics()  # Сохраняем соответствие в файл
+            user_topics[user_id] = topic_id  # Добавляем новую тему в соответствие
 
-            # Отправляем ссылку на профиль пользователя в тему поддержки (только при создании темы)
+            # Отправляем ссылку на профиль пользователя в новую тему поддержки
             if user_username:
                 text = f"{user_name} | @{user_username}:"
             else:
@@ -107,8 +119,6 @@ async def handle_user_message(message: Message):
             logger.error(f"Ошибка при создании темы: {e}")
             await message.answer("Произошла ошибка при обращении в поддержку. Пожалуйста, попробуйте позже.")
             return
-    else:
-        topic_id = user_topics[user_id]
 
     # Пересылаем сообщение пользователя в соответствующую тему
     try:
@@ -198,8 +208,8 @@ dp.message.register(
 
 
 async def main():
-    # Загрузка соответствия из файла при запуске бота
-    load_user_topics()
+    global user_topics
+    user_topics = await get_existing_topics()
 
     try:
         chat = await bot.get_chat(SUPPORT_GROUP_ID)
