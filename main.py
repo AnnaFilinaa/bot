@@ -32,14 +32,28 @@ dp = Dispatcher()
 # Словарь для хранения соответствия пользователей и ID тем
 user_topics = {}
 
+def extract_user_id_from_topic_name(topic_name):
+    """Извлекает user_id из названия темы (предполагая, что user_id включен в название темы)"""
+    parts = topic_name.split('|')
+    if len(parts) >= 3:
+        user_id_str = parts[2].strip()
+        if user_id_str.isdigit():
+            return int(user_id_str)
+    return None
+
 async def get_existing_topics():
-    """Загружает существующие темы из истории сообщений группы поддержки"""
+    """Загружает существующие темы из общей темы группы поддержки"""
     existing_topics = {}
     try:
         offset = 0
         limit = 100
         while True:
-            messages = await bot.get_chat_history(chat_id=SUPPORT_GROUP_ID, offset=offset, limit=limit)
+            messages = await bot.get_chat_history(
+                chat_id=SUPPORT_GROUP_ID,
+                offset=offset,
+                limit=limit,
+                message_thread_id=0  # Общая тема
+            )
             if not messages:
                 break
             for message in messages:
@@ -52,20 +66,11 @@ async def get_existing_topics():
                         existing_topics[user_id] = topic_id
             if len(messages) < limit:
                 break
-            offset += limit
+            offset += len(messages)  # Корректно увеличиваем offset
         return existing_topics
     except Exception as e:
         logger.error(f"Ошибка при получении существующих тем: {e}")
         return existing_topics
-
-def extract_user_id_from_topic_name(topic_name):
-    """Извлекает user_id из названия темы (предполагая, что user_id включен в название темы)"""
-    parts = topic_name.split('|')
-    if len(parts) >= 3:
-        user_id_str = parts[2].strip()
-        if user_id_str.isdigit():
-            return int(user_id_str)
-    return None
 
 # Обработчик команды /start
 async def cmd_start(message: Message):
