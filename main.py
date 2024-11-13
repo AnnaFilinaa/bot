@@ -8,20 +8,13 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ChatType
 import asyncio
-
-# # Получаем переменные окружения
-# API_TOKEN = os.getenv('API_TOKEN')
-# # SUPPORT_GROUP_ID = int(os.getenv('SUPPORT_GROUP_ID'))
-# SUPPORT_GROUP_ID = os.getenv('SUPPORT_GROUP_ID')
-#
-# if API_TOKEN is None:
-#     raise ValueError("Не задан API_TOKEN")
-# if SUPPORT_GROUP_ID is None:
-#     raise ValueError("Не задан SUPPORT_GROUP_ID")
+import psycopg2
+from psycopg2 import sql
 
 API_TOKEN = "7306703210:AAGaafa05SGa9loovceBZXor1TZWfd-3s4Q"
 SUPPORT_GROUP_ID ="-1002364803574"
 
+DB_URL = os.getenv('postgresql://postgres:TebHWJrRLXnQNKNrlaTuYDZoTaVpkFCx@postgres.railway.internal:5432/railway')  # URL подключения к PostgreSQL
 
 # Включаем логирование
 logging.basicConfig(level=logging.INFO)
@@ -31,35 +24,35 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
-# Словарь для хранения соответствия пользователей и ID тем
-user_topics = {}
+def init_db():
+    """Инициализирует базу данных PostgreSQL."""
+    conn = psycopg2.connect(DB_URL)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_topics (
+            user_id TEXT PRIMARY KEY,
+            topic_id INTEGER
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
-# Путь к файлу для сохранения данных
-DATA_FILE = 'user_topics.json'
+def get_topic_id(user_id):
+    """Получает topic_id для пользователя из базы данных."""
+    conn = psycopg2.connect(DB_URL)
+    cursor = conn.cursor()
+    cursor.execute('SELECT topic_id FROM user_topics WHERE user_id = %s', (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
 
-def save_user_topics():
-    """Сохраняет словарь user_topics в JSON-файл."""
-    try:
-        with open(DATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump(user_topics, f)
-        logger.info("Данные user_topics успешно сохранены.")
-    except Exception as e:
-        logger.error(f"Ошибка при сохранении user_topics: {e}")
-
-def load_user_topics():
-    """Загружает словарь user_topics из JSON-файла."""
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            logger.info("Данные user_topics успешно загружены.")
-            return data
-        except Exception as e:
-            logger.error(f"Ошибка при загрузке user_topics: {e}")
-            return {}
-    else:
-        logger.info("Файл user_topics.json не найден. Создается новый.")
-        return {}
+def set_topic_id(user_id, topic_id):
+    """Сохраняет соответствие user_id и topic_id в базу данных."""
+    conn = psycopg2.connect(DB_URL)
+    cursor = conn.cursor()
+    cursor.execute('INSERT INTO user_topics (user_id, topic_id) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET topic_id = EXCLUDED.topic_id', (user_id, topic_id))
+    conn.commit()
+    conn.close()
 
 # Обработчик команды /start
 async def cmd_start(message: Message):
@@ -69,7 +62,7 @@ dp.message.register(cmd_start, Command(commands=["start"]))
 
 # Обработчик сообщений от пользователей
 async def handle_user_message(message: Message):
-    user_id = str(message.from_user.id)  # Приводим к строке для JSON
+    user_id = str(message.from_user.id)  # Приводим к строке для PostgreSQL
     user_name = message.from_user.full_name
     user_username = message.from_user.username or ''
     user_link = f"<a href='tg://user?id={user_id}'>{user_name}</a>"
@@ -78,7 +71,7 @@ async def handle_user_message(message: Message):
     topic_name = f"{user_name} | @{user_username} | {user_id}" if user_username else f"{user_name} | {user_id}"
 
     # Проверяем, есть ли уже тема для этого пользователя
-    topic_id = user_topics.get(user_id)
+    topic_id = get_topic_id(user_id)
     if not topic_id:
         # Если темы нет, создаём новую
         try:
@@ -89,13 +82,12 @@ async def handle_user_message(message: Message):
                 icon_color=0xF4A460  # Пример цвета, можно изменить
             )
             topic_id = topic.message_thread_id
-            user_topics[user_id] = topic_id
-            save_user_topics()  # Сохраняем обновленный словарь
+            set_topic_id(user_id, topic_id)  # Сохраняем соответствие в базу данных
 
             await bot.send_message(
                 chat_id=int(SUPPORT_GROUP_ID),
                 message_thread_id=topic_id,
-                text=f"Чат с {user_link}",
+                text=f"{user_link} создал новую тему для связи.",
                 parse_mode="HTML"
             )
             logger.info(f"Создана новая тема для пользователя {user_id} с ID {topic_id}.")
@@ -127,10 +119,15 @@ async def handle_support_reply(message: Message):
 
     if message.message_thread_id:
         user_id = None
-        for uid, topic_id in user_topics.items():
-            if topic_id == message.message_thread_id:
-                user_id = uid
-                break
+        topic_id = message.message_thread_id
+        # Получаем user_id из базы данных по topic_id
+        conn = psycopg2.connect(DB_URL)
+        cursor = conn.cursor()
+        cursor.execute('SELECT user_id FROM user_topics WHERE topic_id = %s', (topic_id,))
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            user_id = result[0]
 
         if user_id:
             try:
@@ -152,8 +149,7 @@ dp.message.register(
 )
 
 async def main():
-    global user_topics
-    user_topics = load_user_topics()
+    init_db()
 
     try:
         chat = await bot.get_chat(int(SUPPORT_GROUP_ID))
