@@ -87,7 +87,7 @@ async def handle_user_message(message: Message):
             await bot.send_message(
                 chat_id=int(SUPPORT_GROUP_ID),
                 message_thread_id=topic_id,
-                text=f"{user_link} создал новую тему для связи.",
+                text=f"Обращение от {user_link}",
                 parse_mode="HTML"
             )
             logger.info(f"Создана новая тема для пользователя {user_id} с ID {topic_id}.")
