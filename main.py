@@ -14,7 +14,7 @@ from psycopg2 import sql
 API_TOKEN = "7306703210:AAGaafa05SGa9loovceBZXor1TZWfd-3s4Q"
 SUPPORT_GROUP_ID ="-1002364803574"
 
-DB_URL = os.getenv('postgresql://postgres:TebHWJrRLXnQNKNrlaTuYDZoTaVpkFCx@postgres.railway.internal:5432/railway')  # URL подключения к PostgreSQL
+DB_URL = os.getenv('postgresql://postgres:TYBBvBXpDKGBfXwLJCJhZUzcOcKobtYw@junction.proxy.rlwy.net:14921/railway')  # URL подключения к PostgreSQL
 
 # Включаем логирование
 logging.basicConfig(level=logging.INFO)
