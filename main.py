@@ -1,9 +1,10 @@
 import os
 import logging
-import sqlite3
+import json
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message, ContentType
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ChatType
 import asyncio
@@ -30,25 +31,35 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
-# Инициализация базы данных
-conn = sqlite3.connect('user_topics.db')
-cursor = conn.cursor()
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS user_topics (
-        user_id INTEGER PRIMARY KEY,
-        topic_id INTEGER NOT NULL
-    )
-''')
-conn.commit()
+# Словарь для хранения соответствия пользователей и ID тем
+user_topics = {}
 
-def save_user_topic(user_id, topic_id):
-    cursor.execute('REPLACE INTO user_topics (user_id, topic_id) VALUES (?, ?)', (user_id, topic_id))
-    conn.commit()
+# Путь к файлу для сохранения данных
+DATA_FILE = 'user_topics.json'
 
-def get_user_topic(user_id):
-    cursor.execute('SELECT topic_id FROM user_topics WHERE user_id = ?', (user_id,))
-    result = cursor.fetchone()
-    return result[0] if result else None
+def save_user_topics():
+    """Сохраняет словарь user_topics в JSON-файл."""
+    try:
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(user_topics, f)
+        logger.info("Данные user_topics успешно сохранены.")
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении user_topics: {e}")
+
+def load_user_topics():
+    """Загружает словарь user_topics из JSON-файла."""
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            logger.info("Данные user_topics успешно загружены.")
+            return data
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке user_topics: {e}")
+            return {}
+    else:
+        logger.info("Файл user_topics.json не найден. Создается новый.")
+        return {}
 
 # Обработчик команды /start
 async def cmd_start(message: Message):
@@ -58,7 +69,7 @@ dp.message.register(cmd_start, Command(commands=["start"]))
 
 # Обработчик сообщений от пользователей
 async def handle_user_message(message: Message):
-    user_id = message.from_user.id
+    user_id = str(message.from_user.id)  # Приводим к строке для JSON
     user_name = message.from_user.full_name
     user_username = message.from_user.username or ''
     user_link = f"<a href='tg://user?id={user_id}'>{user_name}</a>"
@@ -67,21 +78,27 @@ async def handle_user_message(message: Message):
     topic_name = f"{user_name} | @{user_username} | {user_id}" if user_username else f"{user_name} | {user_id}"
 
     # Проверяем, есть ли уже тема для этого пользователя
-    topic_id = get_user_topic(user_id)
+    topic_id = user_topics.get(user_id)
     if not topic_id:
         # Если темы нет, создаём новую
         try:
             # Создаем новую тему
-            topic = await bot.create_forum_topic(chat_id=SUPPORT_GROUP_ID, name=topic_name)
+            topic = await bot.create_forum_topic(
+                chat_id=int(SUPPORT_GROUP_ID),
+                name=topic_name,
+                icon_color=0xF4A460  # Пример цвета, можно изменить
+            )
             topic_id = topic.message_thread_id
-            save_user_topic(user_id, topic_id)
+            user_topics[user_id] = topic_id
+            save_user_topics()  # Сохраняем обновленный словарь
 
             await bot.send_message(
-                chat_id=SUPPORT_GROUP_ID,
+                chat_id=int(SUPPORT_GROUP_ID),
                 message_thread_id=topic_id,
                 text=f"{user_link} создал новую тему для связи.",
                 parse_mode="HTML"
             )
+            logger.info(f"Создана новая тема для пользователя {user_id} с ID {topic_id}.")
         except Exception as e:
             logger.error(f"Ошибка при создании темы: {e}")
             await message.answer("Произошла ошибка при обращении в поддержку.")
@@ -90,12 +107,13 @@ async def handle_user_message(message: Message):
     # Пересылаем сообщение пользователя в соответствующую тему
     try:
         await bot.copy_message(
-            chat_id=SUPPORT_GROUP_ID,
+            chat_id=int(SUPPORT_GROUP_ID),
             from_chat_id=message.chat.id,
             message_id=message.message_id,
             message_thread_id=topic_id
         )
         await message.answer("Ваше сообщение отправлено в техническую поддержку.")
+        logger.info(f"Сообщение от пользователя {user_id} переслано в тему {topic_id}.")
     except Exception as e:
         logger.error(f"Ошибка при пересылке сообщения: {e}")
         await message.answer("Не удалось отправить сообщение в поддержку.")
@@ -109,30 +127,36 @@ async def handle_support_reply(message: Message):
 
     if message.message_thread_id:
         user_id = None
-        cursor.execute('SELECT user_id FROM user_topics WHERE topic_id = ?', (message.message_thread_id,))
-        result = cursor.fetchone()
-        if result:
-            user_id = result[0]
+        for uid, topic_id in user_topics.items():
+            if topic_id == message.message_thread_id:
+                user_id = uid
+                break
 
         if user_id:
             try:
                 if message.content_type == ContentType.TEXT:
-                    await bot.send_message(chat_id=user_id, text=message.text)
+                    await bot.send_message(chat_id=int(user_id), text=message.text)
                 else:
-                    await bot.send_message(chat_id=user_id, text="Получено сообщение от поддержки.")
+                    await bot.send_message(chat_id=int(user_id), text="Получено сообщение от поддержки.")
+                logger.info(f"Ответ поддержки отправлен пользователю {user_id}.")
             except Exception as e:
                 logger.error(f"Ошибка при отправке сообщения клиенту: {e}")
         else:
             logger.error("Не найден пользователь для данной темы")
+    else:
+        logger.error("Сообщение не содержит message_thread_id")
 
 dp.message.register(
     handle_support_reply,
-    lambda message: message.chat.id == int(SUPPORT_GROUP_ID)
+    lambda message: str(message.chat.id) == SUPPORT_GROUP_ID
 )
 
 async def main():
+    global user_topics
+    user_topics = load_user_topics()
+
     try:
-        chat = await bot.get_chat(SUPPORT_GROUP_ID)
+        chat = await bot.get_chat(int(SUPPORT_GROUP_ID))
         logger.info(f"Бот успешно получил доступ к группе: {chat.title}")
     except Exception as e:
         logger.error(f"Ошибка доступа к группе: {e}")
