@@ -1,5 +1,6 @@
 import os
 import logging
+import sqlite3
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message, ContentType
@@ -29,48 +30,25 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
-# Словарь для хранения соответствия пользователей и ID тем
-user_topics = {}
+# Инициализация базы данных
+conn = sqlite3.connect('user_topics.db')
+cursor = conn.cursor()
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_topics (
+        user_id INTEGER PRIMARY KEY,
+        topic_id INTEGER NOT NULL
+    )
+''')
+conn.commit()
 
-def extract_user_id_from_topic_name(topic_name):
-    """Извлекает user_id из названия темы (предполагая, что user_id включен в название темы)"""
-    parts = topic_name.split('|')
-    if len(parts) >= 3:
-        user_id_str = parts[2].strip()
-        if user_id_str.isdigit():
-            return int(user_id_str)
-    return None
+def save_user_topic(user_id, topic_id):
+    cursor.execute('REPLACE INTO user_topics (user_id, topic_id) VALUES (?, ?)', (user_id, topic_id))
+    conn.commit()
 
-async def get_existing_topics():
-    """Загружает существующие темы из общей темы группы поддержки"""
-    existing_topics = {}
-    try:
-        offset = 0
-        limit = 100
-        while True:
-            messages = await bot.get_chat_history(
-                chat_id=SUPPORT_GROUP_ID,
-                offset=offset,
-                limit=limit,
-                message_thread_id=0  # Общая тема
-            )
-            if not messages:
-                break
-            for message in messages:
-                # Проверяем наличие созданной темы
-                if message.forum_topic_created:
-                    topic_id = message.message_thread_id
-                    topic_name = message.forum_topic_created.name
-                    user_id = extract_user_id_from_topic_name(topic_name)
-                    if user_id:
-                        existing_topics[user_id] = topic_id
-            if len(messages) < limit:
-                break
-            offset += len(messages)  # Корректно увеличиваем offset
-        return existing_topics
-    except Exception as e:
-        logger.error(f"Ошибка при получении существующих тем: {e}")
-        return existing_topics
+def get_user_topic(user_id):
+    cursor.execute('SELECT topic_id FROM user_topics WHERE user_id = ?', (user_id,))
+    result = cursor.fetchone()
+    return result[0] if result else None
 
 # Обработчик команды /start
 async def cmd_start(message: Message):
@@ -89,14 +67,14 @@ async def handle_user_message(message: Message):
     topic_name = f"{user_name} | @{user_username} | {user_id}" if user_username else f"{user_name} | {user_id}"
 
     # Проверяем, есть ли уже тема для этого пользователя
-    topic_id = user_topics.get(user_id)
+    topic_id = get_user_topic(user_id)
     if not topic_id:
         # Если темы нет, создаём новую
         try:
-            # Создаем новую тему, если не нашли
+            # Создаем новую тему
             topic = await bot.create_forum_topic(chat_id=SUPPORT_GROUP_ID, name=topic_name)
             topic_id = topic.message_thread_id
-            user_topics[user_id] = topic_id
+            save_user_topic(user_id, topic_id)
 
             await bot.send_message(
                 chat_id=SUPPORT_GROUP_ID,
@@ -131,10 +109,10 @@ async def handle_support_reply(message: Message):
 
     if message.message_thread_id:
         user_id = None
-        for uid, topic_id in user_topics.items():
-            if topic_id == message.message_thread_id:
-                user_id = uid
-                break
+        cursor.execute('SELECT user_id FROM user_topics WHERE topic_id = ?', (message.message_thread_id,))
+        result = cursor.fetchone()
+        if result:
+            user_id = result[0]
 
         if user_id:
             try:
@@ -149,13 +127,10 @@ async def handle_support_reply(message: Message):
 
 dp.message.register(
     handle_support_reply,
-    lambda message: message.chat.id == SUPPORT_GROUP_ID
+    lambda message: message.chat.id == int(SUPPORT_GROUP_ID)
 )
 
 async def main():
-    global user_topics
-    user_topics = await get_existing_topics()
-
     try:
         chat = await bot.get_chat(SUPPORT_GROUP_ID)
         logger.info(f"Бот успешно получил доступ к группе: {chat.title}")
