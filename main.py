@@ -23,6 +23,9 @@ session = AiohttpSession()
 bot = Bot(token=API_TOKEN, session=session)
 dp = Dispatcher()
 
+# Словарь для хранения задач по пользователям
+user_message_tasks = {}
+
 def init_db():
     """Инициализирует базу данных PostgreSQL."""
     conn = psycopg2.connect(DB_URL)
@@ -87,7 +90,23 @@ async def handle_user_message(message: Message):
         await bot.send_message(chat_id=int(SUPPORT_GROUP_ID), message_thread_id=topic_id, text=f"Обращение от {user_name}")
 
     await bot.copy_message(chat_id=int(SUPPORT_GROUP_ID), from_chat_id=message.chat.id, message_id=message.message_id, message_thread_id=topic_id)
-    await message.answer("Ваше сообщение отправлено в техническую поддержку.")
+
+    # Обработка отложенного сообщения пользователю
+    if user_id in user_message_tasks:
+        # Отменяем предыдущую задачу
+        user_message_tasks[user_id].cancel()
+
+    # Создаем новую задачу
+    async def send_delayed_message():
+        try:
+            await asyncio.sleep(60)  # Ожидаем 60 секунд
+            await message.answer("Ваше сообщение отправлено в техническую поддержку.")
+        except asyncio.CancelledError:
+            # Задача была отменена, ничего не делаем
+            pass
+
+    task = asyncio.create_task(send_delayed_message())
+    user_message_tasks[user_id] = task
 
 # Обработчик ответов от техподдержки
 @dp.message(lambda message: str(message.chat.id) == SUPPORT_GROUP_ID)
