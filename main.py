@@ -37,7 +37,7 @@ def get_topic_id(user_id):
     """Получает topic_id для пользователя из базы данных."""
     conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
-    cursor.execute('SELECT topic_id FROM user_topics WHERE user_id = %s', (user_id,))
+    cursor.execute('SELECT topic_id FROM user_topics WHERE user_id = %s', (str(user_id),))  # Преобразование в строку
     result = cursor.fetchone()
     conn.close()
     return result[0] if result else None
@@ -46,7 +46,7 @@ def set_topic_id(user_id, topic_id):
     """Сохраняет соответствие user_id и topic_id в базу данных."""
     conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
-    cursor.execute('INSERT INTO user_topics (user_id, topic_id) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET topic_id = EXCLUDED.topic_id', (user_id, topic_id))
+    cursor.execute('INSERT INTO user_topics (user_id, topic_id) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET topic_id = EXCLUDED.topic_id', (str(user_id), topic_id))  # Преобразование в строку
     conn.commit()
     conn.close()
 
