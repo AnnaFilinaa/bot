@@ -4,7 +4,7 @@ import psycopg2
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message, ContentType
-from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 import asyncio
 
 API_TOKEN = "7306703210:AAGaafa05SGa9loovceBZXor1TZWfd-3s4Q"
@@ -16,8 +16,11 @@ DB_URL = 'postgresql://postgres:TYBBvBXpDKGBfXwLJCJhZUzcOcKobtYw@postgres.railwa
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Создаем сессию для бота
+session = AiohttpSession()
+
 # Создаем бота
-bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+bot = Bot(token=API_TOKEN, session=session)
 dp = Dispatcher()
 
 def init_db():
@@ -27,7 +30,7 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_topics (
             user_id TEXT PRIMARY KEY,
-            topic_id INTEGER
+            topic_id INTEGER UNIQUE
         )
     ''')
     conn.commit()
@@ -37,7 +40,16 @@ def get_topic_id(user_id):
     """Получает topic_id для пользователя из базы данных."""
     conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
-    cursor.execute('SELECT topic_id FROM user_topics WHERE user_id = %s', (str(user_id),))  # Преобразование в строку
+    cursor.execute('SELECT topic_id FROM user_topics WHERE user_id = %s', (str(user_id),))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
+
+def get_user_id(topic_id):
+    """Получает user_id по topic_id из базы данных."""
+    conn = psycopg2.connect(DB_URL)
+    cursor = conn.cursor()
+    cursor.execute('SELECT user_id FROM user_topics WHERE topic_id = %s', (topic_id,))
     result = cursor.fetchone()
     conn.close()
     return result[0] if result else None
@@ -46,7 +58,11 @@ def set_topic_id(user_id, topic_id):
     """Сохраняет соответствие user_id и topic_id в базу данных."""
     conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
-    cursor.execute('INSERT INTO user_topics (user_id, topic_id) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET topic_id = EXCLUDED.topic_id', (str(user_id), topic_id))  # Преобразование в строку
+    cursor.execute('''
+        INSERT INTO user_topics (user_id, topic_id)
+        VALUES (%s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET topic_id = EXCLUDED.topic_id
+    ''', (str(user_id), topic_id))
     conn.commit()
     conn.close()
 
@@ -76,17 +92,17 @@ async def handle_user_message(message: Message):
 # Обработчик ответов от техподдержки
 @dp.message(lambda message: str(message.chat.id) == SUPPORT_GROUP_ID)
 async def handle_support_reply(message: Message):
-    if message.reply_to_message and message.reply_to_message.message_thread_id:
-        topic_id = message.reply_to_message.message_thread_id
-        user_id = get_topic_id(topic_id)
+    if message.message_thread_id:
+        topic_id = message.message_thread_id
+        user_id = get_user_id(topic_id)
 
         if user_id:
-            await bot.send_message(chat_id=int(user_id), text=message.text)
+            await bot.copy_message(chat_id=int(user_id), from_chat_id=message.chat.id, message_id=message.message_id)
             logger.info(f"Ответ поддержки отправлен пользователю {user_id}.")
         else:
-            logger.error("Не найден пользователь для данной темы")
+            logger.error("Не найден пользователь для данной темы.")
     else:
-        logger.error("Сообщение не содержит reply_to_message с message_thread_id")
+        logger.error("Сообщение не содержит message_thread_id.")
 
 async def main():
     init_db()
