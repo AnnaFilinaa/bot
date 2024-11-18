@@ -6,15 +6,15 @@ from aiogram.filters import Command
 from aiogram.types import Message, ContentType
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ChatType
+from aiogram.enums import ChatType, ChatMemberStatus
 import asyncio
 import psycopg2
 from psycopg2 import sql
 
 API_TOKEN = "7306703210:AAGaafa05SGa9loovceBZXor1TZWfd-3s4Q"
-SUPPORT_GROUP_ID ="-1002364803574"
+SUPPORT_GROUP_ID = "-1002364803574"
 
-DB_URL = 'postgresql://postgres:TYBBvBXpDKGBfXwLJCJhZUzcOcKobtYw@postgres.railway.internal:5432/railway'  # URL подключения к PostgreSQL
+DB_URL = 'postgresql://postgres:TYBBvBXpDKGBfXwLJCJhZUzcOcKobtYw@postgres.railway.internal:5432/railway'
 
 # Включаем логирование
 logging.basicConfig(level=logging.INFO)
@@ -62,27 +62,23 @@ dp.message.register(cmd_start, Command(commands=["start"]))
 
 # Обработчик сообщений от пользователей
 async def handle_user_message(message: Message):
-    user_id = str(message.from_user.id)  # Приводим к строке для PostgreSQL
+    user_id = str(message.from_user.id)
     user_name = message.from_user.full_name
     user_username = message.from_user.username or ''
     user_link = f"<a href='tg://user?id={user_id}'>{user_name}</a>"
 
-    # Формируем название темы, включая user_id
     topic_name = f"{user_name} | @{user_username} | {user_id}" if user_username else f"{user_name} | {user_id}"
 
-    # Проверяем, есть ли уже тема для этого пользователя
     topic_id = get_topic_id(user_id)
     if not topic_id:
-        # Если темы нет, создаём новую
         try:
-            # Создаем новую тему
             topic = await bot.create_forum_topic(
                 chat_id=int(SUPPORT_GROUP_ID),
                 name=topic_name,
-                icon_color=0xF4A460  # Пример цвета, можно изменить
+                icon_color=0xF4A460
             )
             topic_id = topic.message_thread_id
-            set_topic_id(user_id, topic_id)  # Сохраняем соответствие в базу данных
+            set_topic_id(user_id, topic_id)
 
             await bot.send_message(
                 chat_id=int(SUPPORT_GROUP_ID),
@@ -96,7 +92,6 @@ async def handle_user_message(message: Message):
             await message.answer("Произошла ошибка при обращении в поддержку.")
             return
 
-    # Пересылаем сообщение пользователя в соответствующую тему
     try:
         await bot.copy_message(
             chat_id=int(SUPPORT_GROUP_ID),
@@ -117,15 +112,26 @@ async def handle_support_reply(message: Message):
     if message.from_user.is_bot:
         return
 
+    # Проверяем, что отправитель является администратором
+    try:
+        member = await bot.get_chat_member(chat_id=message.chat.id, user_id=message.from_user.id)
+        if member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+            logger.warning(f"Пользователь {message.from_user.id} не является администратором.")
+            return
+    except Exception as e:
+        logger.error(f"Ошибка при проверке статуса пользователя: {e}")
+        return
+
     if message.message_thread_id:
         user_id = None
         topic_id = message.message_thread_id
-        # Получаем user_id из базы данных по topic_id
+
         conn = psycopg2.connect(DB_URL)
         cursor = conn.cursor()
         cursor.execute('SELECT user_id FROM user_topics WHERE topic_id = %s', (topic_id,))
         result = cursor.fetchone()
         conn.close()
+
         if result:
             user_id = result[0]
 
