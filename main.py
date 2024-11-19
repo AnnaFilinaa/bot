@@ -120,7 +120,7 @@ async def handle_user_message(message: Message):
     async def send_delayed_message():
         try:
             await asyncio.sleep(30)  # Ожидаем 30 секунд
-            await message.answer("Ваше сообщение отправлено в техническую поддержку.")
+            await message.answer("Ваше обращение отправлено в техническую поддержку.")
         except asyncio.CancelledError:
             # Задача была отменена, ничего не делаем
             pass
