@@ -79,17 +79,37 @@ async def cmd_start(message: Message):
 async def handle_user_message(message: Message):
     user_id = str(message.from_user.id)
     user_name = message.from_user.full_name
+    user_username = message.from_user.username or ''
+    user_link = f"<a href='tg://user?id={user_id}'>{user_name}</a>"
     topic_id = get_topic_id(user_id)
 
     if not topic_id:
+        # Формируем название темы
+        if user_username:
+            topic_name = f"{user_name} | @{user_username} | {user_id}"
+        else:
+            topic_name = f"{user_name} | {user_id}"
+
         # Создание новой темы
-        topic = await bot.create_forum_topic(chat_id=int(SUPPORT_GROUP_ID), name=user_name)
+        topic = await bot.create_forum_topic(chat_id=int(SUPPORT_GROUP_ID), name=topic_name)
         topic_id = topic.message_thread_id
         set_topic_id(user_id, topic_id)
 
-        await bot.send_message(chat_id=int(SUPPORT_GROUP_ID), message_thread_id=topic_id, text=f"Обращение от {user_name}")
+        # Отправляем первое сообщение в тему
+        text = f"Обращение от {user_link}"
+        await bot.send_message(
+            chat_id=int(SUPPORT_GROUP_ID),
+            message_thread_id=topic_id,
+            text=text,
+            parse_mode="HTML"
+        )
 
-    await bot.copy_message(chat_id=int(SUPPORT_GROUP_ID), from_chat_id=message.chat.id, message_id=message.message_id, message_thread_id=topic_id)
+    await bot.copy_message(
+        chat_id=int(SUPPORT_GROUP_ID),
+        from_chat_id=message.chat.id,
+        message_id=message.message_id,
+        message_thread_id=topic_id
+    )
 
     # Обработка отложенного сообщения пользователю
     if user_id in user_message_tasks:
@@ -116,7 +136,11 @@ async def handle_support_reply(message: Message):
         user_id = get_user_id(topic_id)
 
         if user_id:
-            await bot.copy_message(chat_id=int(user_id), from_chat_id=message.chat.id, message_id=message.message_id)
+            await bot.copy_message(
+                chat_id=int(user_id),
+                from_chat_id=message.chat.id,
+                message_id=message.message_id
+            )
             logger.info(f"Ответ поддержки отправлен пользователю {user_id}.")
         else:
             logger.error("Не найден пользователь для данной темы.")
