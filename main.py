@@ -119,7 +119,7 @@ async def handle_user_message(message: Message):
     # Создаем новую задачу
     async def send_delayed_message():
         try:
-            await asyncio.sleep(60)  # Ожидаем 60 секунд
+            await asyncio.sleep(30)  # Ожидаем 30 секунд
             await message.answer("Ваше сообщение отправлено в техническую поддержку.")
         except asyncio.CancelledError:
             # Задача была отменена, ничего не делаем
@@ -142,6 +142,12 @@ async def handle_support_reply(message: Message):
                 message_id=message.message_id
             )
             logger.info(f"Ответ поддержки отправлен пользователю {user_id}.")
+
+            # Отменяем отложенное сообщение, если оно еще не отправлено
+            if user_id in user_message_tasks:
+                user_message_tasks[user_id].cancel()
+                del user_message_tasks[user_id]
+
         else:
             logger.error("Не найден пользователь для данной темы.")
     else:
