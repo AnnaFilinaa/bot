@@ -26,6 +26,9 @@ dp = Dispatcher()
 # Словарь для хранения задач по пользователям
 user_message_tasks = {}
 
+# Словарь для хранения message_id сообщений клиента в теме форума
+topic_messages = {}
+
 def init_db():
     """Инициализирует базу данных PostgreSQL."""
     conn = psycopg2.connect(DB_URL)
@@ -104,12 +107,17 @@ async def handle_user_message(message: Message):
             parse_mode="HTML"
         )
 
-    await bot.copy_message(
+    sent_message = await bot.copy_message(
         chat_id=int(SUPPORT_GROUP_ID),
         from_chat_id=message.chat.id,
         message_id=message.message_id,
         message_thread_id=topic_id
     )
+
+    # Сохраняем message_id сообщения клиента в теме форума
+    if topic_id not in topic_messages:
+        topic_messages[topic_id] = set()
+    topic_messages[topic_id].add(sent_message.message_id)
 
     # Обработка отложенного сообщения пользователю
     if user_id in user_message_tasks:
@@ -136,7 +144,8 @@ async def handle_support_reply(message: Message):
         user_id = get_user_id(topic_id)
 
         if user_id:
-            if message.reply_to_message:
+            # Проверяем, является ли сообщение ответом на сообщение клиента
+            if message.reply_to_message and message.reply_to_message.message_id in topic_messages.get(topic_id, set()):
                 await bot.copy_message(
                     chat_id=int(user_id),
                     from_chat_id=message.chat.id,
@@ -149,8 +158,7 @@ async def handle_support_reply(message: Message):
                     user_message_tasks[user_id].cancel()
                     del user_message_tasks[user_id]
             else:
-                # Не пересылаем сообщение, если оно не является ответом
-                logger.info("Сообщение не является ответом, не отправляем пользователю.")
+                logger.info("Сообщение не является ответом на сообщение клиента. Не отправляем пользователю.")
         else:
             logger.error("Не найден пользователь для данной темы.")
     else:
