@@ -131,31 +131,31 @@ async def handle_user_message(message: Message):
 # Обработчик ответов от техподдержки
 @dp.message(lambda message: str(message.chat.id) == SUPPORT_GROUP_ID)
 async def handle_support_reply(message: Message):
-    if not message.reply_to_message:
-        logger.info("Сообщение от поддержки не является reply, оно игнорируется.")
-        return
-
     if message.message_thread_id:
         topic_id = message.message_thread_id
         user_id = get_user_id(topic_id)
 
         if user_id:
-            await bot.copy_message(
-                chat_id=int(user_id),
-                from_chat_id=message.chat.id,
-                message_id=message.message_id
-            )
-            logger.info(f"Ответ поддержки отправлен пользователю {user_id}.")
+            if message.reply_to_message:
+                await bot.copy_message(
+                    chat_id=int(user_id),
+                    from_chat_id=message.chat.id,
+                    message_id=message.message_id
+                )
+                logger.info(f"Ответ поддержки отправлен пользователю {user_id}.")
 
-            # Отменяем отложенное сообщение, если оно еще не отправлено
-            if user_id in user_message_tasks:
-                user_message_tasks[user_id].cancel()
-                del user_message_tasks[user_id]
-
+                # Отменяем отложенное сообщение, если оно еще не отправлено
+                if user_id in user_message_tasks:
+                    user_message_tasks[user_id].cancel()
+                    del user_message_tasks[user_id]
+            else:
+                # Не пересылаем сообщение, если оно не является ответом
+                logger.info("Сообщение не является ответом, не отправляем пользователю.")
         else:
             logger.error("Не найден пользователь для данной темы.")
     else:
         logger.error("Сообщение не содержит message_thread_id.")
+
 
 async def main():
     init_db()
