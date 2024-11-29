@@ -131,6 +131,10 @@ async def handle_user_message(message: Message):
 # Обработчик ответов от техподдержки
 @dp.message(lambda message: str(message.chat.id) == SUPPORT_GROUP_ID)
 async def handle_support_reply(message: Message):
+    if not message.reply_to_message:
+        logger.info("Сообщение от поддержки не является reply, оно игнорируется.")
+        return
+
     if message.message_thread_id:
         topic_id = message.message_thread_id
         user_id = get_user_id(topic_id)
