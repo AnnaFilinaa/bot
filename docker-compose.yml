@@ -6,4 +6,22 @@ services:
     container_name: telegram-bot
     restart: always
     env_file:
-      - .env
+      - develop.env
+    depends_on:
+      - postgres-db
+
+  postgres-db:
+    image: postgres:15
+    container_name: postgres-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data  # Локальная директория для хранения данных
+
+volumes:
+  postgres-data:  # Встроенный том (не используется, но можно оставить для гибкости)
