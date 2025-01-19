@@ -74,42 +74,33 @@ def init_db():
 
 def get_topic_id(user_id):
     """Получает topic_id для пользователя из базы данных."""
-    try:
-        with psycopg2.connect(DB_URL) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute('SELECT topic_id FROM user_topics WHERE user_id = %s', (str(user_id),))
-                result = cursor.fetchone()
-                return result[0] if result else None
-    except psycopg2.Error as e:
-        logger.error(f"Error getting topic_id for user_id {user_id}: {e}")
-        return None
+    conn = psycopg2.connect(DB_URL)
+    cursor = conn.cursor()
+    cursor.execute('SELECT topic_id FROM user_topics WHERE user_id = %s', (str(user_id),))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
 
 def get_user_id(topic_id):
     """Получает user_id для темы из базы данных."""
-    try:
-        with psycopg2.connect(DB_URL) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute('SELECT user_id FROM user_topics WHERE topic_id = %s', (topic_id,))
-                result = cursor.fetchone()
-                return result[0] if result else None
-    except psycopg2.Error as e:
-        logger.error(f"Error getting user_id for topic_id {topic_id}: {e}")
-        return None
+    conn = psycopg2.connect(DB_URL)
+    cursor = conn.cursor()
+    cursor.execute('SELECT user_id FROM user_topics WHERE topic_id = %s', (topic_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
 
 def set_topic_id(user_id, topic_id):
     """Сохраняет соответствие user_id и topic_id в базу данных."""
-    try:
-        with psycopg2.connect(DB_URL) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute('''
-                    INSERT INTO user_topics (user_id, topic_id)
-                    VALUES (%s, %s)
-                    ON CONFLICT (user_id) DO UPDATE SET topic_id = EXCLUDED.topic_id
-                ''', (str(user_id), topic_id))
-                conn.commit()
-    except psycopg2.Error as e:
-        logger.error(f"Error setting topic_id {topic_id} for user_id {user_id}: {e}")
-
+    conn = psycopg2.connect(DB_URL)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO user_topics (user_id, topic_id)
+        VALUES (%s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET topic_id = EXCLUDED.topic_id
+    ''', (str(user_id), topic_id))
+    conn.commit()
+    conn.close()
 
 @dp.message(Command(commands=["start"]))
 async def cmd_start(message: Message):
