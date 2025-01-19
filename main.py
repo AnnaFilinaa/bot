@@ -1,6 +1,7 @@
 import os
 import logging
 import psycopg2
+from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -34,8 +35,32 @@ dp = Dispatcher()
 user_message_tasks = {}
 topic_messages = {}
 
+def ensure_database_exists():
+    """Проверяет и создает базу данных, если она отсутствует."""
+    conn = psycopg2.connect(
+        dbname="postgres",  # Подключение к системной базе данных
+        user=DB_USER,
+        password=DB_PASS,
+        host=DB_HOST,
+        port=DB_PORT
+    )
+    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    cursor = conn.cursor()
+
+    # Проверяем, существует ли база данных
+    cursor.execute(f"SELECT 1 FROM pg_database WHERE datname = '{DB_NAME}'")
+    if not cursor.fetchone():
+        cursor.execute(f"CREATE DATABASE {DB_NAME}")
+        logger.info(f"Database {DB_NAME} created.")
+    else:
+        logger.info(f"Database {DB_NAME} already exists.")
+
+    cursor.close()
+    conn.close()
+
 def init_db():
-    """Инициализирует базу данных PostgreSQL."""
+    """Инициализирует таблицы в базе данных PostgreSQL."""
+    ensure_database_exists()  # Убедиться, что база существует
     conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
     cursor.execute('''
@@ -49,33 +74,42 @@ def init_db():
 
 def get_topic_id(user_id):
     """Получает topic_id для пользователя из базы данных."""
-    conn = psycopg2.connect(DB_URL)
-    cursor = conn.cursor()
-    cursor.execute('SELECT topic_id FROM user_topics WHERE user_id = %s', (str(user_id),))
-    result = cursor.fetchone()
-    conn.close()
-    return result[0] if result else None
+    try:
+        with psycopg2.connect(DB_URL) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute('SELECT topic_id FROM user_topics WHERE user_id = %s', (str(user_id),))
+                result = cursor.fetchone()
+                return result[0] if result else None
+    except psycopg2.Error as e:
+        logger.error(f"Error getting topic_id for user_id {user_id}: {e}")
+        return None
 
 def get_user_id(topic_id):
     """Получает user_id для темы из базы данных."""
-    conn = psycopg2.connect(DB_URL)
-    cursor = conn.cursor()
-    cursor.execute('SELECT user_id FROM user_topics WHERE topic_id = %s', (topic_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result[0] if result else None
+    try:
+        with psycopg2.connect(DB_URL) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute('SELECT user_id FROM user_topics WHERE topic_id = %s', (topic_id,))
+                result = cursor.fetchone()
+                return result[0] if result else None
+    except psycopg2.Error as e:
+        logger.error(f"Error getting user_id for topic_id {topic_id}: {e}")
+        return None
 
 def set_topic_id(user_id, topic_id):
     """Сохраняет соответствие user_id и topic_id в базу данных."""
-    conn = psycopg2.connect(DB_URL)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO user_topics (user_id, topic_id)
-        VALUES (%s, %s)
-        ON CONFLICT (user_id) DO UPDATE SET topic_id = EXCLUDED.topic_id
-    ''', (str(user_id), topic_id))
-    conn.commit()
-    conn.close()
+    try:
+        with psycopg2.connect(DB_URL) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute('''
+                    INSERT INTO user_topics (user_id, topic_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET topic_id = EXCLUDED.topic_id
+                ''', (str(user_id), topic_id))
+                conn.commit()
+    except psycopg2.Error as e:
+        logger.error(f"Error setting topic_id {topic_id} for user_id {user_id}: {e}")
+
 
 @dp.message(Command(commands=["start"]))
 async def cmd_start(message: Message):
