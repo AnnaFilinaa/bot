@@ -1,10 +1,11 @@
 #!/bin/bash
-set -e
+set -e  # Останавливает выполнение при ошибке
 
-host="$1"
+host="$1"  # Хост базы данных
 shift
-cmd="$@"
+cmd="$@"  # Остальные команды
 
+# Ждём, пока Postgres станет доступным
 until pg_isready -h "$host" -p 5432; do
   >&2 echo "Postgres is unavailable - sleeping"
   sleep 1
