@@ -1,6 +1,15 @@
 #version: '3.8'
 
 services:
+#  telegram-bot:
+#    build: .
+#    container_name: telegram-bot
+#    restart: always
+#    env_file:
+#      - develop.env
+#    depends_on:
+#      - postgres-db
+
   telegram-bot:
     build: .
     container_name: telegram-bot
@@ -9,6 +18,8 @@ services:
       - develop.env
     depends_on:
       - postgres-db
+    entrypoint: [ "./wait-for-postgres.sh", "postgres-db", "python", "main.py" ]
+
 
   postgres-db:
     image: postgres:15
